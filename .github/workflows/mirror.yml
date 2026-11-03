@@ -1,0 +1,71 @@
+name: Mirror PHP SDK from LCP
+
+# Packagist reads this repository because the PHP package lives in the LCP
+# monorepo under implementations/sdk/php. Every LCP release tag is copied here
+# at the same tag name so Composer can resolve versions.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: LCP release tag to mirror (for example v1.1.1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    name: Mirror tagged PHP SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Resolve the tag to mirror
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "::error::tag must look like v1.2.3 (got '$tag')"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Copy the PHP SDK from the tagged LCP tree
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/lcp
+          git clone --depth 1 --branch "$TAG" https://github.com/SpearSystems/LCP.git /tmp/lcp
+          test -f /tmp/lcp/implementations/sdk/php/composer.json
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name .git ! -name .github ! -name README.md ! -name LICENSE \
+            -exec rm -rf {} +
+          rsync -a --exclude README.md /tmp/lcp/implementations/sdk/php/ ./
+      - name: Commit and tag the mirror
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "LCP release mirror"
+          git config user.email "lcp-release@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Content already mirrors $TAG"
+          else
+            git commit -m "Mirror LCP PHP SDK from $TAG"
+          fi
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists in the mirror; releases are immutable"
+            exit 1
+          fi
+          git tag "$TAG"
+          git push origin HEAD:main
+          git push origin "refs/tags/$TAG"
