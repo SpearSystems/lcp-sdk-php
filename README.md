@@ -23,3 +23,6 @@ tag here. Run it from **Actions → Mirror PHP SDK from LCP → Run workflow** w
 the LCP tag (for example `v1.1.1`).
 
 Report issues against the source repository, not this mirror.
+
+Packagist updates this package from the repository webhook on every push,
+including tags; a manual **Update** on the package page forces a crawl.
